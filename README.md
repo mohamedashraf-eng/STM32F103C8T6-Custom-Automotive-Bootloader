@@ -14,3 +14,6 @@ Our bootloader is mainly consists of one main thing, the relation between the ho
 ## How the communication starts
 The communication starts by connecting the ECU through a USB-TTL device to start communicate with it. The bootloader has two channels opened when in action, one for the actual channel host-device and another for the debug messages. The host application will communicate via USARTx channel. Simply the bootloader is designed to receive a sepcific defined packet.
 ![HOSTxBTL_Communiction](https://c.top4top.io/p_2489tqmvs1.png)
+
+Bootloader expected packet format
+![HOSTxBTL_Communiction](https://e.top4top.io/p_2489q5cbu1.png)
