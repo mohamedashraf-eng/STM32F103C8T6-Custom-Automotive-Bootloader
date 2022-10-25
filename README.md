@@ -12,10 +12,12 @@ The bootloader is the first code to run after power up or reset, and runs before
 ## About this bootloader
 Our bootloader is mainly consists of one main thing, the relation between the host and the device. The host is the application that communicates with the bootloader, the device is the ECU which contains the bootloader application. The host is communicating with the device by pre defined commands that both of them know. Each pre defined command has one function to do.
 ## How the communication starts
-The communication starts by connecting the ECU through a USB-TTL device to start communicate with it. The bootloader has two channels opened when in action, one for the actual channel host-device and another for the debug messages. The host application will communicate via USARTx channel. Simply the bootloader is designed to receive a sepcific defined packet.
+The communication starts by connecting the ECU through a USB-TTL device to start communicate with it. The bootloader has two channels opened when in action, one for the actual channel host-device and another for the debug messages. The host application will communicate via USARTx channel. Simply the bootloader is designed to receive a sepcific defined packet.  
+
 ![HOSTxBTL_Communiction](https://c.top4top.io/p_2489tqmvs1.png)
 
 ## Bootloader expected packet format
 The packet consists of 1 byte for the data length, 1 byte for the command, and n bytes for data, and 4 bytes for CRC.  
-The Cyclic Redundancy Check (CRC) is used for secure and reliable communication.
+The Cyclic Redundancy Check (CRC) is used for secure and reliable communication.  
+
 ![HOSTxBTL_Communiction](https://e.top4top.io/p_2489q5cbu1.png)
