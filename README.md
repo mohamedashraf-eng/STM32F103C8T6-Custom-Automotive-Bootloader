@@ -16,6 +16,6 @@ The communication starts by connecting the ECU through a USB-TTL device to start
 ![HOSTxBTL_Communiction](https://c.top4top.io/p_2489tqmvs1.png)
 
 ## Bootloader expected packet format
-![HOSTxBTL_Communiction](https://e.top4top.io/p_2489q5cbu1.png)
 The packet consists of 1 byte for the data length, 1 byte for the command, and n bytes for data, and 4 bytes for CRC.  
 The Cyclic Redundancy Check (CRC) is used for secure and reliable communication.
+![HOSTxBTL_Communiction](https://e.top4top.io/p_2489q5cbu1.png)
