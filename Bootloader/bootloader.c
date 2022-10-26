@@ -217,7 +217,7 @@ BTL_voidSendDataToHost(uint8_t *Address_u8Data, uint8_t Copy_u8DataLength)
 	HAL_UART_Transmit(BTL_CHANNEL_UART, Address_u8Data, Copy_u8DataLength, HAL_MAX_DELAY);
 }/** @end BTL_voidSendDataToHost */
 
-/** @defgroup Bootloader cmd functions */
+/** @defgroup Bootloader cmd functions ------------------------------------------------------------------ */
 static void
 BTL_voidGetVersion(uint8_t *Address_u8RxHostBuffer)
 {
@@ -289,6 +289,7 @@ BTL_voidGetHelp(uint8_t *Address_u8RxHostBuffer)
 		/* Error handle */
 		BTL_voidSendNackToHost();
 		BTL_voidPrintDbgMsg("Error! BTL_voidGetHelp: CRC32 not valid \r\n");
+		
 	}
 	else 
 	{
@@ -325,7 +326,7 @@ BTL_voidGetChipIdNumber(uint8_t *Address_u8RxHostBuffer)
 		BTL_voidSendDataToHost((uint8_t *)&L_u16ChipId, 2u);
 	}
 	
-	BTL_voidJumpToUserApp();
+	BTL_voidJumpToUserApp(); /////////////////////// To be removed.
 }/** @end BTL_voidGetChipIdNumber */
 static void
 BTL_voidJumpToAddress(uint8_t *Address_u8RxHostBuffer)
@@ -376,20 +377,115 @@ BTL_voidJumpToAddress(uint8_t *Address_u8RxHostBuffer)
 	}
 }/** @end BTL_voidJumpToAddress */
 static void
-BTL_voidGetSectorProtectionStatus(uint8_t *Address_u8RxHostBuffer)
-{
-
-}/** @end BTL_voidGetSectorProtectionStatus */
-static void
 BTL_voidEraseFlash(uint8_t *Address_u8RxHostBuffer)
 {
+	/* Packet length = Data length bytes + The length byte */
+	uint8_t  L_u8HostCmdPacketLength = Address_u8RxHostBuffer[0] + 1U;
+	/* To get the 4 bytes CRC located at the last 4. Get the arr_sz-1 then - 4 */
+	uint32_t L_u32HostCrc32 =
+	*((uint32_t *) ((Address_u8RxHostBuffer + L_u8HostCmdPacketLength) - CRC_LENGTH_IN_BYTES));
 
+	/* CRC Verification */
+	EN_BtlCRC32Status_t L_EnCRC32VerifyStatus =
+	BTL_EnVerificateCRC32(Address_u8RxHostBuffer, (L_u8HostCmdPacketLength-CRC_LENGTH_IN_BYTES), L_u32HostCrc32);
+
+	if( (BTL_CRC32_NACK == L_EnCRC32VerifyStatus) )
+	{
+		/* Error handle */
+		BTL_voidSendNackToHost();
+		BTL_voidPrintDbgMsg("Error! BTL_voidGetHelp: CRC32 not valid \r\n");
+	}
+	else
+	{
+		BTL_voidSendAckToHost(1u);
+
+		/* Extract the erasing data */
+		uint8_t L_u8PageIndex  = Address_u8RxHostBuffer[2],
+						L_u8NumOfPages = Address_u8RxHostBuffer[3];
+
+		/* Perform the erase process */
+		EN_BtlFlashEraseStatus_t L_EnEraseStatus =
+		BTL_EnEraseFlashPages(L_u8PageIndex, L_u8NumOfPages);
+
+		if( (BTL_FLASH_ERASE_NACK == L_EnEraseStatus) )
+		{
+			BTL_voidPrintDbgMsg("Error! BTL_voidEraseFlash: Erasing Failed. \r\n");
+			/* Report status */
+			BTL_voidSendDataToHost((uint8_t *)&L_EnEraseStatus, 1u);
+		}
+		else
+		{
+			BTL_voidPrintDbgMsg("Page Index: %d \
+													 Number Of Pages: %d \r\n", L_u8PageIndex, L_u8NumOfPages);
+			BTL_voidPrintDbgMsg("BTL_voidEraseFlash: Erasing Done. \r\n");
+			/* Report status */
+			BTL_voidSendDataToHost((uint8_t *)&L_EnEraseStatus, 1u);
+		}
+	}
 }/** @end BTL_voidEraseFlash */
 static void
 BTL_voidMemoryWrite(uint8_t *Address_u8RxHostBuffer)
 {
+	/* Packet length = Data length bytes + The length byte */
+	uint8_t  L_u8HostCmdPacketLength = Address_u8RxHostBuffer[0] + 1U;
+	/* To get the 4 bytes CRC located at the last 4. Get the arr_sz-1 then - 4 */
+	uint32_t L_u32HostCrc32 =
+	*((uint32_t *) ((Address_u8RxHostBuffer + L_u8HostCmdPacketLength) - CRC_LENGTH_IN_BYTES));
 
+	/* CRC Verification */
+	EN_BtlCRC32Status_t L_EnCRC32VerifyStatus =
+	BTL_EnVerificateCRC32(Address_u8RxHostBuffer, (L_u8HostCmdPacketLength-CRC_LENGTH_IN_BYTES), L_u32HostCrc32);
+
+	if( (BTL_CRC32_NACK == L_EnCRC32VerifyStatus) )
+	{
+		/* Error handle */
+		BTL_voidSendNackToHost();
+		BTL_voidPrintDbgMsg("Error! BTL_voidGetHelp: CRC32 not valid \r\n");
+	}
+	else
+	{
+		BTL_voidSendAckToHost(1u);
+
+		/* Extract the writing data */
+		uint32_t L_u32HostWBaseAddr    = *((uint32_t *) &Address_u8RxHostBuffer[2]);
+		uint8_t  L_u8HostPayloadLength = Address_u8RxHostBuffer[6];
+		EN_BtlHostFlashWriteAddrStatus_t L_EnHostWAddrStatus = BTL_HOST_FLASH_ADDR_NACK;
+
+		/* Check if the base address is valid */
+		L_EnHostWAddrStatus = BTL_EnVerifyHostJmpAddr(L_u32HostWBaseAddr);
+
+		if( (BTL_HOST_FLASH_ADDR_NACK == L_EnHostWAddrStatus) )
+		{
+			/* Report Status */
+			BTL_voidPrintDbgMsg("Error! BTL_voidMemoryWrite: Invalid Base Address \r\n");
+			BTL_voidSendDataToHost(&L_EnHostWAddrStatus, 1u);
+		}
+		else
+		{
+			/* Perform the writing algorithm */
+			L_EnHostWAddrStatus = BTL_EnBtlWriteToAddr((uint8_t *)&Address_u8RxHostBuffer[7],
+												   										   L_u32HostWBaseAddr,
+													 											 L_u8HostPayloadLength);
+			if( (BTL_HOST_FLASH_ADDR_NACK == L_EnHostWAddrStatus) )
+			{
+				BTL_voidPrintDbgMsg("Error! BTL_voidMemoryWrite: Writing Failed. \r\n");
+				BTL_voidSendDataToHost(&L_EnHostWAddrStatus, 1u);
+			}
+			else
+			{
+				BTL_voidPrintDbgMsg("BTL_voidMemoryWrite: Writing Succeeded. \r\n");
+				BTL_voidSendDataToHost(&L_EnHostWAddrStatus, 1u);
+			}
+		}
+	}
 }/** @end BTL_voidMemoryWrite */
+
+static void
+BTL_voidGetSectorProtectionStatus(uint8_t *Address_u8RxHostBuffer)
+{
+
+}/** @end BTL_voidGetSectorProtectionStatus */
+
 static void
 BTL_voidEnableRWProtection(uint8_t *Address_u8RxHostBuffer)
 {
@@ -481,7 +577,144 @@ BTL_EnVerificateCRC32(uint8_t *Address_u8RxHostBuffer,
 	return L_EnCRC32VerifyStatus;
 }/** @end BTL_EnVerificateCRC32 */
 
+static EN_BtlFlashEraseStatus_t
+BTL_EnEraseFlashPages(uint8_t Copy_u8PageIndex,
+											uint8_t Copy_u8NumOfPages)
+{
+	EN_BtlFlashEraseStatus_t L_EnErasingStatus = BTL_FLASH_ERASE_NACK;
 
+	/* Checks on pages numbers */
+	if( (Copy_u8NumOfPages > BTL_FLASH_MAX_PAGE_NUM) )
+	{
+		/* Error handle */
+		BTL_voidPrintDbgMsg("Error! BTL_EnEraseFlashPages: Invalid Num of pages. \r\n");
+	}
+	else
+	{
+		/* Check the page index */
+		if( (Copy_u8PageIndex <= (BTL_FLASH_MAX_PAGE_NUM - 1u)) ||
+				(BTL_FLASH_MASS_ERASE == Copy_u8PageIndex) )
+		{
+			/* Init the Flash HAL Driver */
+			FLASH_EraseInitTypeDef L_StMyErasingConfig;
+			HAL_StatusTypeDef L_EnHalErasingStatus = HAL_ERROR;
+			uint32_t L_u32PageErasingError = 0;
 
+			/* If mass erase is commanded */
+			if( (BTL_FLASH_MASS_ERASE == Copy_u8PageIndex) )
+			{
+				BTL_voidPrintDbgMsg("BTL_voidEraseFlash: Mass Erase. \r\n");
 
+				L_StMyErasingConfig.TypeErase = FLASH_TYPEERASE_MASSERASE;
+			}
+			/* If single range is commanded */
+			else
+			{
+				BTL_voidPrintDbgMsg("BTL_voidEraseFlash: Page Erase. \r\n");
 
+				/* Force the pages to be limited */
+				uint8_t L_u8RemainingPages = BTL_FLASH_MAX_PAGE_NUM - Copy_u8PageIndex;
+
+				if( (Copy_u8NumOfPages > L_u8RemainingPages) )
+				{
+					Copy_u8NumOfPages = L_u8RemainingPages;
+				}
+				else {;}
+
+				L_StMyErasingConfig.TypeErase = FLASH_TYPEERASE_PAGES;
+				L_StMyErasingConfig.PageAddress = BTL_u32PageIndexToPagedAddr(Copy_u8PageIndex);
+				L_StMyErasingConfig.NbPages = Copy_u8NumOfPages;
+			}
+			L_StMyErasingConfig.Banks = FLASH_BANK_1;
+
+			/* Unlock the flash */
+			HAL_FLASH_Unlock();
+
+			/* Start erasing */
+			L_EnHalErasingStatus =
+			HAL_FLASHEx_Erase(&L_StMyErasingConfig, &L_u32PageErasingError);
+
+			/* If succesful erase is done
+			 * Value (0xFFFFFFFFU): HAL_SUCCESFULL_ERASE
+			 */
+			if( (0xFFFFFFFFU == L_u32PageErasingError) )
+			{
+				BTL_voidPrintDbgMsg("BTL_EnEraseFlashPages: Erasing Succeeded. \r\n");
+				L_EnErasingStatus = BTL_FLASH_ERASE_ACK;
+			}
+			else
+			{
+				BTL_voidPrintDbgMsg("Error! BTL_EnEraseFlashPages: Erasing Failed. \r\n");
+			}
+
+			/* Lock the flash */
+			HAL_FLASH_Lock();
+		}
+		else
+		{
+			/* Error handle */
+			BTL_voidPrintDbgMsg("Error! BTL_EnEraseFlashPages: Invalid Page Index. \r\n");
+		}
+	}
+
+	return L_EnErasingStatus;
+}/** @end BTL_EnEraseFlashPages */
+static uint32_t
+BTL_u32PageIndexToPagedAddr(uint8_t Copy_u8PageIndex)
+{
+	uint32_t L_u32PageAddress = ( (FLASH_BASE) |
+																(Copy_u8PageIndex * STM32F103C8Tx_FLASH_PAGE_SIZE) );
+	
+	if( (L_u32PageAddress < FLASH_BASE) || (L_u32PageAddress > STM32F103C8Tx_FLASH_END) )
+	{
+		/* Error handle */
+		while(1) {;} /* Sync Stuck */
+	}
+	else {;}
+
+	return (L_u32PageAddress);
+}/** @end BTL_u32PageIndexToPagedAddr */
+
+static EN_BtlHostFlashWriteAddrStatus_t
+BTL_EnBtlWriteToAddr(uint8_t *Copy_u8HostPayload,
+										 uint32_t Copy_u32PayloadBaseAddress,
+										 uint16_t Copy_u16PayloadLength)
+{
+	EN_BtlHostFlashWriteAddrStatus_t L_EnWritingStatus = BTL_HOST_FLASH_ADDR_NACK;
+	HAL_StatusTypeDef L_EnHalWriteStatus = HAL_ERROR;
+
+	/* Unlock the flash access */
+	L_EnHalWriteStatus = HAL_FLASH_Unlock();
+	if( (HAL_OK != L_EnHalWriteStatus) )
+	{ BTL_voidPrintDbgMsg("Error! BTL_EnBtlWriteToAddr: Unlocking Flash Failed. \r\n"); }
+	else
+	{
+		/* Start writing */
+		uint16_t L_u16DataCounter = 0;
+
+		for(L_u16DataCounter = 0; (L_u16DataCounter < Copy_u16PayloadLength); ++L_u16DataCounter)
+		{
+			L_EnHalWriteStatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD,
+																						(Copy_u32PayloadBaseAddress + L_u16DataCounter),
+																						 Copy_u8HostPayload[L_u16DataCounter]);
+			if( (HAL_OK != L_EnHalWriteStatus) )
+			{
+				/* Stop the writing */
+				L_EnWritingStatus = BTL_HOST_FLASH_ADDR_NACK;
+				BTL_voidPrintDbgMsg("Error! BTL_EnBtlWriteToAddr: Writing failed. \r\n");
+				break;
+			}
+			else
+			{
+				L_EnWritingStatus = BTL_HOST_FLASH_ADDR_ACK;
+			}
+		}
+	}
+	/* Lock the flash access */
+	L_EnHalWriteStatus = HAL_FLASH_Lock();
+	if( (HAL_OK != L_EnHalWriteStatus) )
+	{ BTL_voidPrintDbgMsg("Error! BTL_EnBtlWriteToAddr: Locking Flash Failed. \r\n"); }
+	else {;}
+
+	return L_EnWritingStatus;
+}/** @end EN_BtlHostWriteToAddr */
