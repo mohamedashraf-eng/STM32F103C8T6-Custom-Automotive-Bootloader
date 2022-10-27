@@ -31,7 +31,6 @@ BTL_EnFetchHostCmd(void)
 	
 	EN_BTLStatus_t L_EnThisFunctionStatus = BTL_NACK;
 	HAL_StatusTypeDef L_EnHalUartStatus = HAL_ERROR;
-	uint8_t L_u8DataLength = 0;
 	
 	/* Flush the buffer */
 	memset(G_u8BtlHostBuffer, 0, BTL_HOST_BUFFER_RX_SIZE);
@@ -49,7 +48,7 @@ BTL_EnFetchHostCmd(void)
 	else
 	{
 		/* Get the data length */
-		L_u8DataLength = G_u8BtlHostBuffer[0];
+		uint8_t L_u8DataLength = G_u8BtlHostBuffer[0];
 		
 		/* Start receiving data */
 		L_EnHalUartStatus = HAL_UART_Receive(BTL_CHANNEL_UART, 
@@ -90,7 +89,7 @@ BTL_EnFetchHostCmd(void)
 				case CBL_GET_RDP_STATUS_CMD			:
 						BTL_voidPrintDbgMsg("CBL_GET_RDP_STATUS_CMD \r\n");
 						/* Perform the functionality */
-						BTL_voidGetSectorProtectionStatus(G_u8BtlHostBuffer);
+						BTL_voidGetMemProtectionStatus(G_u8BtlHostBuffer);
 						/* Set the new status */
 						L_EnHalUartStatus = BTL_ACK;
 					break;
@@ -289,7 +288,6 @@ BTL_voidGetHelp(uint8_t *Address_u8RxHostBuffer)
 		/* Error handle */
 		BTL_voidSendNackToHost();
 		BTL_voidPrintDbgMsg("Error! BTL_voidGetHelp: CRC32 not valid \r\n");
-		
 	}
 	else 
 	{
@@ -481,10 +479,43 @@ BTL_voidMemoryWrite(uint8_t *Address_u8RxHostBuffer)
 }/** @end BTL_voidMemoryWrite */
 
 static void
-BTL_voidGetSectorProtectionStatus(uint8_t *Address_u8RxHostBuffer)
+BTL_voidGetMemProtectionStatus(uint8_t *Address_u8RxHostBuffer)
 {
+	/* Packet length = Data length bytes + The length byte */
+	uint8_t  L_u8HostCmdPacketLength = Address_u8RxHostBuffer[0] + 1U;
+	/* To get the 4 bytes CRC located at the last 4. Get the arr_sz-1 then - 4 */
+	uint32_t L_u32HostCrc32 =
+	*((uint32_t *) ((Address_u8RxHostBuffer + L_u8HostCmdPacketLength) - CRC_LENGTH_IN_BYTES));
 
-}/** @end BTL_voidGetSectorProtectionStatus */
+	/* CRC Verification */
+	EN_BtlCRC32Status_t L_EnCRC32VerifyStatus =
+	BTL_EnVerificateCRC32(Address_u8RxHostBuffer, (L_u8HostCmdPacketLength-CRC_LENGTH_IN_BYTES), L_u32HostCrc32);
+
+	if( (BTL_CRC32_NACK == L_EnCRC32VerifyStatus) )
+	{
+		/* Error handle */
+		BTL_voidSendNackToHost();
+		BTL_voidPrintDbgMsg("Error! BTL_voidGetHelp: CRC32 not valid \r\n");
+	}
+	else
+	{
+		BTL_voidSendAckToHost(1u);
+
+		uint8_t L_u8RDPLevel = 0;
+		/* Get the protection level of target MCU */
+		EN_BtlRDPStatus_t L_EnFuncStatus =
+		BTL_EnGetSTM32F103C8T6_ProtectionLvl(&L_u8RDPLevel);
+
+		if( (BTL_RDP_NACK == L_EnFuncStatus) )
+		{
+			/* Error handle */
+			BTL_voidPrintDbgMsg("Error! BTL_voidGetMemProtectionStatus: Reading RDP Failed. \r\n");
+			L_u8RDPLevel = 0xDDU;
+		}
+		else {;}
+		BTL_voidSendDataToHost((uint8_t *)&L_u8RDPLevel, 1u);
+	}
+}/** @end BTL_voidGetMemProtectionStatus */
 
 static void
 BTL_voidEnableRWProtection(uint8_t *Address_u8RxHostBuffer)
@@ -691,12 +722,16 @@ BTL_EnBtlWriteToAddr(uint8_t *Copy_u8HostPayload,
 	{
 		/* Start writing */
 		uint16_t L_u16DataCounter = 0;
-
-		for(L_u16DataCounter = 0; (L_u16DataCounter < Copy_u16PayloadLength); ++L_u16DataCounter)
+		uint16_t L_u16HwordPayloadData = 0;
+		
+		for(L_u16DataCounter = 0; (L_u16DataCounter < Copy_u16PayloadLength-1u); L_u16DataCounter+=2)
 		{
+			L_u16HwordPayloadData = /** @todo: To be tested & modified */
+			(Copy_u8HostPayload[L_u16DataCounter] | (Copy_u8HostPayload[L_u16DataCounter+1u] << 8u));
+
 			L_EnHalWriteStatus = HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD,
 																						(Copy_u32PayloadBaseAddress + L_u16DataCounter),
-																						 Copy_u8HostPayload[L_u16DataCounter]);
+																						 L_u16HwordPayloadData);
 			if( (HAL_OK != L_EnHalWriteStatus) )
 			{
 				/* Stop the writing */
@@ -709,12 +744,37 @@ BTL_EnBtlWriteToAddr(uint8_t *Copy_u8HostPayload,
 				L_EnWritingStatus = BTL_HOST_FLASH_ADDR_ACK;
 			}
 		}
+		/* Lock the flash access */
+		L_EnHalWriteStatus = HAL_FLASH_Lock();
+		if( (HAL_OK != L_EnHalWriteStatus) )
+		{ BTL_voidPrintDbgMsg("Error! BTL_EnBtlWriteToAddr: Locking Flash Failed. \r\n"); }
+		else {;}
 	}
-	/* Lock the flash access */
-	L_EnHalWriteStatus = HAL_FLASH_Lock();
-	if( (HAL_OK != L_EnHalWriteStatus) )
-	{ BTL_voidPrintDbgMsg("Error! BTL_EnBtlWriteToAddr: Locking Flash Failed. \r\n"); }
-	else {;}
 
 	return L_EnWritingStatus;
 }/** @end EN_BtlHostWriteToAddr */
+
+static EN_BtlRDPStatus_t
+BTL_EnGetSTM32F103C8T6_ProtectionLvl(uint8_t *Address_u8TargetRDP)
+{
+	EN_BtlRDPStatus_t L_EnMyFuncStatus = BTL_RDP_NACK;
+
+	FLASH_OBProgramInitTypeDef L_StMyFlashRDPSett;
+
+	/* Get the RDP level */
+	HAL_FLASHEx_OBGetConfig(&L_StMyFlashRDPSett);
+
+	if( (L_StMyFlashRDPSett.RDPLevel < 0) )
+	{
+		/* Error handle */
+	}
+	else
+	{
+		/* Get the RDP Level */
+		(*Address_u8TargetRDP) = (uint8_t) (L_StMyFlashRDPSett.RDPLevel);
+		L_EnMyFuncStatus = BTL_RDP_ACK;
+		BTL_voidPrintDbgMsg("Protection Level: 0x%X \r\n", (*Address_u8TargetRDP));
+	}
+
+	return L_EnMyFuncStatus;
+}/** @end BTL_u32GetSTM32F103C8T6_ProtectionLvl */

@@ -36,14 +36,14 @@
 #define	CBL_DIS_R_W_PROTECT_CMD				(0x1AU)
 #define CBL_READ_SECTOR_STATUS 				(0x1BU)
 
+/** @defgroup Packet informations */
+#define CRC_LENGTH_IN_BYTES 					(4u)
+
 /** @defgroup Bootloader virtual identifications */
 #define BTL_VENDOR_ID 								(69u)
 #define BTL_SW_MAJOR_VERSION					(1u)
 #define BTL_SW_MINOR_VERSION					(0u)
 #define BTL_SW_PATCH_VERSION					(0u)
-
-/** @defgroup Packet informations */
-#define CRC_LENGTH_IN_BYTES 					(4u)
 
 /** @defgroup Application Code information */
 #define FLASH_BASE_APP_ADDR 					(0x08005000U)
@@ -97,6 +97,13 @@ typedef enum EN_BtlHostFlashWriteAddrStatus_t
 	BTL_HOST_FLASH_ADDR_NACK = 0x00U,
 	BTL_HOST_FLASH_ADDR_ACK  = 0x01U
 }EN_BtlHostFlashWriteAddrStatus_t;
+
+typedef enum EN_BtlRDPStatus_t
+{
+	BTL_RDP_NACK = 0x00U,
+	BTL_RDP_ACK  = 0x01U
+}EN_BtlRDPStatus_t;
+
 /* Public Functions ------------------------------------------------------------------*/
 
 EN_BTLStatus_t 
@@ -123,7 +130,7 @@ BTL_voidGetHelp(uint8_t *Address_u8RxHostBuffer);
 static void
 BTL_voidGetChipIdNumber(uint8_t *Address_u8RxHostBuffer);
 static void
-BTL_voidGetSectorProtectionStatus(uint8_t *Address_u8RxHostBuffer);
+BTL_voidGetMemProtectionStatus(uint8_t *Address_u8RxHostBuffer);
 static void
 BTL_voidJumpToAddress(uint8_t *Address_u8RxHostBuffer);
 static void
@@ -138,7 +145,6 @@ static void
 BTL_voidReadOTP(uint8_t *Address_u8RxHostBuffer);
 static void
 BTL_voidDisableRWProtection(uint8_t *Address_u8RxHostBuffer);
-
 
 static EN_BtlCRC32Status_t
 BTL_EnVerificateCRC32(uint8_t *Address_u8RxHostBuffer, 
@@ -159,6 +165,9 @@ static EN_BtlHostFlashWriteAddrStatus_t
 BTL_EnBtlWriteToAddr(uint8_t *Copy_u8HostPayload,
 										 uint32_t Copy_u32PayloadBaseAddress,
 										 uint16_t Copy_u16PayloadLength);
+
+static EN_BtlRDPStatus_t
+BTL_EnGetSTM32F103C8T6_ProtectionLvl(uint8_t *Address_u8TargetRDP);
 
 #endif /* __BOOTLOADER_H__ */
 
